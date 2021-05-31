@@ -1,4 +1,4 @@
-#+title: Emacs从入门到精通
-#+date: 2021-04-19
+#+title: Emacs入门
+#+date: 2021-04-18
 
 * emacs

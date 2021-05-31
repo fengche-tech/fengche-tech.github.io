@@ -1,0 +1,72 @@
+#+title: kubernetes入门
+#+date: 2021-04-23T08:36:54+08:00
+
+* 资源
+** Deployment
+
+** Service
+expose
+
+** Ingress
+
+** 配置与存储
+*** PV/PVC
+https://blog.csdn.net/qq_25611295/article/details/86065053
+*** ConfigMap
+#+begin_quote
+configmap是k8s的一个配置管理组件，可以将配置以key-value的形式传递，通常用来保存不需要加密的配置信息，加密信息则需用到Secret，主要用来应对以下场景：
+
+1. 使用k8s部署应用，当你将应用配置写进代码中，就会存在一个问题，更新配置时也需要打包镜像，configmap可以将配置信息和docker镜像解耦。
+2. 使用微服务架构的话，存在多个服务共用配置的情况，如果每个服务中单独一份配置的话，那么更新配置就很麻烦，使用configmap可以友好的进行配置共享。
+
+其次，configmap可以用来保存单个属性，也可以用来保存配置文件。
+#+end_quote
+
+**** 创建
+- 通过yaml文件创建
+#+begin_src yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cm-yaml-demo
+data:
+  config: |+
+    API_URL: "http://api.demo.com"
+#+end_src
+
+#+begin_src bash
+kubectl create -f configmap.yaml # 创建
+#+end_src
+
+- 通过 *--from-file* 创建
+#+begin_src bash
+# 指定目录可以创建一个包含该目录中所有文件的ConfigMap
+kubectl create configmap cm-from-file-path-demo --from-file=/path
+
+# 指定为单个文件就可以从单个文件中创建ConfigMap
+kubectl create configmap cm-from-file-demo --from-file=file
+
+# 可以使用多次
+kubectl create configmap cm-from-multi-file-demo --from-file=file1 --from-file=file2
+#+end_src
+
+- 通过key-value字符串创建
+#+begin_src bash
+kubectl create configmap cm-key-value-demo --from-literal=field1=123 --from-literal=field2=234
+#+end_src
+
+- 通过env文件创建
+创建.env文件
+#+begin_src yaml
+field1=123
+field2=456
+#+end_src
+
+#+begin_src bash
+kubectl create configmap cm-env-demo --from-env-file=.env
+#+end_src
+
+
+**** 使用
+https://zhuanlan.zhihu.com/p/109111916
+*** secret

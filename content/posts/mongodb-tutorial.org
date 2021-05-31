@@ -1,0 +1,177 @@
+#+title: MongoDB入门
+#+date: 2021-04-19
+
+* 概述
+#+begin_quote
+MongoDB 是一个基于文档的分布式数据库, 是一个介于关系数据库和非关系数据库之间的产品，是非关系数据库当中功能最丰富，最像关系数据库的。
+#+end_quote
+** NoSQL
+Not Only SQL(非关系型数据库)
+
+** NoSQL数据库类型
+- key-value: redis
+- 文档型: mongoDB
+- 图数据库: neo4j
+
+* 安装与配置
+  #+begin_src bash
+  wget https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel70-4.4.5.tgz
+  tar -xf mongodb-linux-x86_64-rhel70-4.4.5.tgz
+  mkdir -p /data/mongodb
+  ./bin/mongod --dbpath=/data/mongodb
+  #+end_src
+** ./bin/mongod常用参数
+- port 端口
+- bind_ip 限制访问的ip
+- logpath
+- logappend
+- fork 后台启动
+- config 指定配置
+
+** 常用指令
+#+begin_src
+show dbs;
+use test;
+#+end_src
+
+* MongoDB的CRUD、全文索引(搜索)
+** 新增
+#+begin_src javascript
+db.test.insertOne({a: 1})  -- 插入一条
+db.test.insertMany([{a:1}, {a:2}] -- 插入多条
+db.test.instert    -- 参数是一条就插入一条，多条就插入多条
+#+end_src
+
+** 查询
+db.test.find()
+db.test.find({a:1})
+
+$and $or $in $gt $gte $lt $lte
+sort skip limit
+
+* 聚合
+** pipeline
+内存不能超过20%
+
+$match: 过滤
+$project: 指定聚合字段
+$group: 统计操作 $sum
+
+*** demo 1
+#+begin_src javascript
+db.emp.aggregate(
+  { $match: { dep: "客服" } },
+  { $project: { name: 1, dep: 1, salary: 1 } }
+}
+#+end_src
+
+*** demo 2
+#+begin_src javascript
+db.emp.aggregate(
+  { $project: { name: 1, dep: 1, salary: 1} },
+  { $group: { "_id": "dep", total: { $sum: "$salary" } } }
+)
+#+end_src
+
+*** demo 3
+$sum操作
+#+begin_src javascript
+db.emp.aggregate(
+  { $match: { salary: { $gt: 4000 } } },
+  { $project: { name: 1, dep: 1, salary: 1} },
+  { $group: { "_id": "dep", total: { $sum: "$salary" } } }
+)
+#+end_src
+
+*** demo 4
+对返回值再进行$match操作
+#+begin_src javascript
+db.emp.aggregate(
+  { $match: { salary: { $gt: 4000 } } },
+  { $project: { name: 1, dep: 1, salary: 1} },
+  { $group: { "_id": "dep", total: { $sum: "$salary" } } },
+  { $match: { total: { $gt: 24000 } } },
+)
+#+end_src
+
+** MapReduce
+支持分布式
+1. 编写map函数
+2. 编写reduce函数
+3. 把map和reduce函数添加至数据集，并保存到一个新的集合
+4. 查看统计结果
+
+#+begin_src javascript
+const map1 = function() {
+  emit(this.job, this.salary)
+}
+
+const reduce1 = function(job, salarys) {
+  return salarys.length
+}
+#+end_src
+
+* 集群
+** 主从复制
+*** 创建配置文件
+1.创建conf/master.conf
+#+begin_src yaml
+port=27017
+dbpath=/data/mongodb/master
+logpath=/data/mongodb/master/mongod.log
+fork=true
+replSet=blog
+#+end_src
+
+2.创建conf/slave1.conf
+#+begin_src yaml
+port=27018
+dbpath=/data/mongodb/slave1
+logpath=/data/mongodb/slave1/mongod.log
+fork=true
+replSet=blog
+#+end_src
+
+3.创建conf/slave2.conf
+#+begin_src yaml
+port=27019
+dbpath=/data/mongodb/slave2
+logpath=/data/mongodb/slave2/mongod.log
+fork=true
+replSet=blog
+#+end_src
+
+*** 启动mongod
+#+begin_src bash
+./bin/mongod --conf conf/master.conf
+./bin/mongod --conf conf/slave1.conf
+./bin/mongod --conf conf/slave2.conf
+#+end_src
+
+*** 配置集群信息
+#+begin_src bash
+./bin/mongo --port 27017
+#+end_src
+
+#+begin_src javascript
+let cfg = {
+  _id: "blog",
+  members: [
+    { _id: 0, host: "127.0.0.1:27017", priority: 100 },    // priority越高master挂了后越有可能被选为master
+    { _id: 1, host: "127.0.0.1:27018", priority: 90 },
+    { _id: 2, host: "127.0.0.1:27019", arbiterOnly: true } // 设置了arbiterOnly后变为仲裁者，不会被选为master
+]
+
+rs.initiate(cfg)
+#+end_src
+
+#+begin_src javascript
+rs.slaveOK();
+#+end_src
+
+** 分片
+*** 路由节点
+网关
+*** 配置节点
+存储了数据的元信息
+*** 分片节点

@@ -5,3 +5,5 @@ theme: "PaperMod"
 
 params:
   comments: true
+  ShowBreadCrumbs: true
+  ShowPostNavLinks: true

@@ -1,0 +1,257 @@
+#+title: Redis入门
+#+date: 2021-04-20
+
+* 概述
+https://www.w3cschool.cn/redis_all_about/redis_all_about-bgnl271c.html
+#+begin_quote
+redis是一个key-value分布式存储系统。和Memcached类似，它支持存储的value类型相对更多，包括string(字符串)、list(链表)、set(集合)、zset(sorted set --有序集合)和hash（哈希类型）。
+#+end_quote
+
+* 安装
+#+begin_src bash
+wget https://download.redis.io/releases/redis-6.2.2.tar.gz
+tar xf redis-6.2.2.tar.gz
+cd redis-6.2.2
+make && make install
+#+end_src
+
+* 基础数据结构
+** 字符串(string)相关操作
+*** 简单操作
+#+begin_src bash
+# set key value [EX seconds|PX milliseconds|EXAT timestamp|PXAT milliseconds-timestamp|KEEPTTL] [NX|XX] [GET]
+set key value
+
+# get key
+get key
+
+# exists key [key ...]
+exists key
+
+# del key [key ...]
+del key
+#+end_src
+
+*** 批量操作
+#+begin_src bash
+# mset key value [key value ...]
+mset key1 value1 key2 value2 key3 value3
+
+# mget key [key ...]
+mget key1 key2 key3
+#+end_src
+
+*** 设置key的过期时间
+#+begin_src bash
+set key value
+
+# expire key seconds
+expire key 5
+
+# setex key seconds value
+setex key 5 value
+#+end_src
+
+*** 仅当key不存在时设定
+#+begin_src bash
+# setnx key value
+setnx key value # 不存在则创建，并返回1，返回0
+#+end_src
+
+*** 通过set nx px实现分布式锁
+- 加锁
+#+begin_src bash
+set resource_name my_random_value NX PX 30000
+#+end_src
+
+- 释放锁
+#+begin_src lua
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+else
+  return 0
+end
+#+end_src
+
+*** 原子计数
+#+begin_src bash
+set age 30
+# incr key
+incr age
+
+#incrby key increment
+incrby age 5
+incrby age -5
+
+set age 9223372036854775808 # Long.Max
+incr age # 报错
+#+end_src
+
+使用场景:
+1. 记录每个用户访问这个网站的次数
+2. 限流: 限制某个api每秒每个ip的请求次数不超过10次
+
+*** 通过原子计数实现分布式锁
+#+begin_src bash
+incr lock # 结果是1的客户端获取到锁
+expire lock 30000
+# decr key
+decr lock # 无论是否获取到锁都要执行一下
+#+end_src
+
+** list(队列)
+#+begin_src bash
+# rpush key element [element ...]
+rpush books nodejs c cpp java golang
+
+# llen key
+llen books
+
+# lpop key [count]
+lpop books
+#+end_src
+
+** hash
+hash与序列化的string对比查询速度快，O(1)
+#+begin_src bash
+# hset key field value [field value ...]
+hset book page1 abc
+
+# hgetall key
+hgetall book # 获取整个对象
+
+# hget key field
+hget book page1 # 获取某个属性
+#+end_src
+
+** set
+
+** zset
+
+** 其他命令
+- keys
+全量遍历，列出所有满足特定正则表达式规则的key，当redis数据量比较大时，要避免使用
+
+- scan
+渐进式查找，类似于分页查找
+#+begin_src bash
+# scan cursor [MATCH pattern] [COUNT count] [TYPE type]
+scan 0 MATCH * COUNT 10 Type string
+#+end_src
+
+- type
+#+begin_src bash
+type key
+#+end_src
+
+- randomkey
+#+begin_src bash
+randomkey
+#+end_src
+
+
+[[http://redisbook.com/preview/dict/incremental_rehashing.html][渐进式 rehash]]
+
+- info
+#+begin_src bash
+# info [section]
+info
+#+end_src
+
+* 核心原理
+** redis的单线程和高性能
+- Redis单线程为什么这么快？
+因为它所有的数据都在内存中，所有的运算都是内存级别的运算，而且单线程避免了多线程的切换性能损耗问题，正因为Redis是单线程，所以要小心使用Redis指令，对于那些耗时的指令(比如keys),一不小心就可能造成redis卡顿。
+
+- Redis单线程如何处理那么多的并发客户端连接?
+Redis利用epoll来实现IO多路复用，将连接信息和事件放到队列中，一次放到文件事件分配器，事件分配器将事件分发给事件处理器，Nginx也是采用IO多路复用原理解决C10K问题。
+
+** 持久化
+*** RDB快照(snapshot)
+在默认情况下，Redis将数据库快照保存在名字为dump.rdb的二进制文件中。你可以对redis进行设置，让它在“N秒内数据集至少M个改动"这一条件被满足时，自动保存一次数据集。
+比如说，以下设置会让redis在满足“60秒内有至少1000个键被改动”这一条件时，自动保存一次数据集
+#+begin_src yaml
+save 60 1000
+#+end_src
+
+*** AOF (append-only file)
+快照功能并不能非常耐久(durable):如果Redis因为某些原因而造成故障停机，那么服务器将丢失最近写入切仍未保存到快照中的那些数据
+
+#+begin_src yaml
+appendonly yes
+appendfsync always # 总是执行
+appendfsync everysec # 每秒执行一次
+#+end_src
+
+*** Redis 4.0的混合持久化
+重启redis时，我们很少使用rdb来恢复内存状态，因为会丢失大量数据。我们通常使用AOF日志重放，但是重放AOF日志性能相对rdb来说要慢很多，这样在redis实例很大的情况下，启动需要花费很长时间，Redis4.0为了解决这个问题，
+带来了一个新的持久化选项--混合持久化。*AOF重写*(aof文件里面可能有太多没用的指令，所以aof会定期根据内存的最新数据生成aof文件)时将rdb文件的内容和增量的AOF日志文件存在一起，AOF根据配置规则在后台自动重写，也
+可以认为执行命令bgrewriteaof重写AOF。这里AOF日志不再是全量的日志，而是持久化开始到持久化结束的这段时间发生的增量AOF日志，通常这部分AOF日志很小。于是Redis重启的时候，可以先加载rdb的内容，然后再重放AOF日志
+就可以完全替代之前的AOF全量文件重放，重启效率因此大幅得到提升。
+
+bgrewriteaof重写
+
+开启混合持久化
+#+begin_src yarml
+aof-use-rdb-preamble yes # 开启
+auto-aof-rewite-percentage 100
+auto-aof-rewite-min-size 64mb
+#+end_src
+
+*** FAQ
+**** 重写必须要aof和rdb同时设置为yes吗？还是混合持久化的选项设为yes就可以？
+#+begin_quote
+aof和混合持久化都要设置为aof，混合持久化是基于aof的
+#+end_quote
+
+**** 手动重写aof文件，如果文件很大需要话很长时间，这个时候刚好又有新操作的数据怎么办？
+#+begin_quote
+新操作会存在内存里，等到aof重写完再追加到aof文件的末尾，aof重写的数据就是重写开始之前的内存数据
+#+end_quote
+
+** 缓存淘汰策略
+当redis内存超出物理内存限制时，内存的数据会开始和磁盘产生频繁的交换(swap)。交换会让redis的性能急剧下降，对于访问量比较频繁的redis来说，这样的龟速存取效率基本上等于不可用。
+
+在生产环境中我们是不允许redis出现交换行为的，为了限制最大使用内存，redis提供了配置参数maxmemory来限制内存超出期望大小。
+
+当实际内存超出maxmemory时，redis提供了几种可选策略(maxmemory-policy)来让用户自己决定该如何腾出新的空间以继续提供读写服务。
+- noeviction
+#+begin_quote
+不会继续服务写请求（DEL请求可以继续服务),读请求可以继续进行。这样可以保证不会丢失数据，但是会让线上的业务不能持续进行。这是默认的淘汰策略
+#+end_quote
+
+- volatile-lru
+#+begin_quote
+尝试淘汰设置了过期时间的key，最少使用的key有限被淘汰，没有设置过期时间的key不会被淘汰，这样可以保证需要持久化的数据不会突然消失
+#+end_quote
+
+- volatile-ttl
+#+begin_quote
+跟上面一样，除了淘汰策略不是lru，而是key的剩余寿命ttl的值，ttl越小越优先被淘汰
+#+end_quote
+
+- volatile-random
+#+begin_quote
+跟上面一样，不过淘汰的key是过期key集合中随机的key
+#+end_quote
+
+- allkeys-lfu
+
+- allkeys-lru
+#+begin_quote
+区别于volatile-lru这个策略要淘汰的key对象是全体的key集合，而不是过期的key集合，这以为着没有设置过期时间的key也会被淘汰
+#+end_quote
+
+- allkey-random
+#+begin_quote
+跟上面一样，不过淘汰的策略是随机的key
+#+end_quote
+
+volatile-xxx策略只会针对带过期的key进行淘汰，allkeys-xxx策略会对所有的key进行淘汰。如果你只是那redis做缓存，那应该使用allkeys-xxx，客户端写缓存时不必携带过期时间。如果还想同时使用redis的持久化功能，那就
+使用volatile-xxx策略，这样可以保留没有设置过期时间的key，他们是永久的key不会被lru算法淘汰
+
+* 集群方案
+** 哨兵模式(sentinel)
+在redis3.0以前的版本一般借助哨兵sentinel工具来监控master节点的状态,如果master节点异常则会做主从切换。
+
+** 高可用集群架构(jedisCluster)
